@@ -49,7 +49,7 @@ class action_plugin_airtable extends DokuWiki_Action_Plugin {
             This will pull data from the "Martin Requests" airtable and save the result in start2.txt
             
             Note, please add the cronjob to your crontab in order to run your configuration file:
-            */5 * * * * /usr/bin/php /home/username/public_html/lib/plugins/airtable/jobs.php >/dev/null 2>&1
+            */5 * * * * /usr/bin/php DOKUWIKI_ROOT/lib/plugins/airtable/jobs.php >/dev/null 2>&1
             
             The job above ^ will make all requests in this config file every 5 minutes
             
