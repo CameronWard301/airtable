@@ -9,8 +9,9 @@ A Dokuwiki plugin to sync data from airtable
 Place the airtable folder inside your Dokuwiki plugin directory:  
 `DOKUWIKI_ROOT/lib/plugins`  
 Add a cron job for automated scheduling of all syncs made in the config file with jobs.php  
-E.g. ` */5 * * * * /usr/bin/php /home/username/public_html/lib/plugins/airtable/jobs.php >/dev/null 2>&1`
-Will run all jobs in the config file, every 5 minutes.  
+E.g. ` */5 * * * * /usr/bin/php DOKUWIKI_ROOT/lib/plugins/airtable/jobs.php >/dev/null 2>&1`
+Will run all jobs in the config file, every 5 minutes.
+To run your config manually, load: `/lib/plugins/airtable/jobs.php` in a web browser.
 
 ## Usage:
 Add as many requests as you need in the config file using the config manager in Dokuwiki. This can be found in the admin panel under "Configuration File Manager" once confmanager is installed.
