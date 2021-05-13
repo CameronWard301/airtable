@@ -5,7 +5,7 @@ define('DOKU_INC', realpath(dirname(__FILE__) . '/../../../') . '/');
 define('DOKU_PLUGIN', DOKU_INC . 'lib/plugins/');
 require_once(DOKU_INC . 'inc/utf8.php');
 require_once(DOKU_INC . 'inc/pageutils.php');
-//shell_exec('php bin/plugin.php airtable appZGFwgzjqeMwdqy Martin%20Requests?sort%5B0%5D%5Bfield%5D=Ticket%20%23 keydCHnFFjxbYtkPN start2.txt');
+//shell_exec('php bin/plugin.php airtable appZGFwgzjqeMwdqy Martin%20Requests?sort%5B0%5D%5Bfield%5D=Ticket%20%23 APIKEY start2.txt');
 
 function log_debug($data) {
     $logFile = fopen("request_logs.txt", "a+") or die("airtable request log error, unable to open file");
@@ -47,8 +47,3 @@ foreach($config as $request) {
 //var_dump($config);
 
 fclose($configFile);
-
-/*$configFile = fopen(AIRTABLE_CONF, "r") or die("Unable to open airtable plugin config.conf file");
-$data = fread($configFile, filesize(AIRTABLE_CONF));
-$dataDecode = parse
-*/

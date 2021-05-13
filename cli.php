@@ -57,7 +57,7 @@ class cli_plugin_airtable extends DokuWiki_CLI_Plugin {
         $theFile = fopen(DOKU_INC . 'data/pages/' . $arguments[3], "w") or die("can't open: " . DOKU_INC . "data/pages/" . $arguments[3] . " file");
         fclose($theFile);
 
-        //curl https://api.airtable.com/v0/appZGFwgzjqeMwdqy/%F0%9F%8D%B4%20Collaborators \ -H "Authorization: Bearer keydCHnFFjxbYtkPN
+        //curl https://api.airtable.com/v0/appZGFwgzjqeMwdqy/%F0%9F%8D%B4%20Collaborators \ -H "Authorization: Bearer APIKEY
 
         $url      = 'https://api.airtable.com/v0/' . $arguments[0] . '/' . $arguments[1];
         $settings = array(
@@ -69,7 +69,7 @@ class cli_plugin_airtable extends DokuWiki_CLI_Plugin {
         $context  = stream_context_create($settings);
         $response = file_get_contents($url, false, $context);
 
-        if($http_response_header[0] != "HTTP/1.1 200 OK") { // if invalid return error:
+        if($http_response_header[0] != "HTTP/1.1 200 OK") { // if invalid request, return error:
             echo($http_response_header[0] . " for URL: " . $url);
             die();
         }
@@ -99,7 +99,6 @@ class cli_plugin_airtable extends DokuWiki_CLI_Plugin {
 
                 $encoded_Field_Name = htmlspecialchars("\n==" . array_search($field, $keys) . ":==\n");
                 $encoded_Field      = str_replace(array("\xe2\x80\xa8", "\n//", "// "), "", $field); //remove the   character from the airtable data
-                //$encoded_Field      = str_replace(array("\xe2\x80\xa8"), "", $field); //remove the   character from the airtable data
                 $text .= $encoded_Field_Name . $encoded_Field . "\n\n";
 
             }

@@ -45,7 +45,7 @@ class action_plugin_airtable extends DokuWiki_Action_Plugin {
             KEY: Enter a unique int - this is the order the requests are processed e.g. starting from 0
             VALUE Use this format: BASEID, QUERY, APIKEY, DESTINATION_FILE
             E.g.
-            appZGFwgzjqeMwdqy, Martin%20Requests, keydCHnFFjxbYtkPN, start2.txt
+            appZGFwgzjqeMwdqy, Martin%20Requests, APIKEY, start2.txt
             This will pull data from the "Martin Requests" airtable and save the result in start2.txt
             
             Note, please add the cronjob to your crontab in order to run your configuration file:
