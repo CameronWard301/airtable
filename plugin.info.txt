@@ -1,7 +1,0 @@
-base   airtable
-author Cameron
-email  cameronward007@gmail.com
-date   2021-05-09
-name   airtable plugin
-desc   Get Airtable information and display in dokuwiki page
-url    https://pluginwiz.dokuwiki.org/
