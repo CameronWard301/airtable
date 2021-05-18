@@ -84,7 +84,6 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @see render()
      */
     function connectTo($mode) {
-        //$this->Lexer->addSpecialPattern('\[NOW\]',$mode,'plugin_airtable');
         $this->Lexer->addEntryPattern('<airtable>', $mode, 'plugin_airtable');
     }
 
@@ -158,7 +157,8 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @return Boolean <tt>TRUE</tt> if rendered successfully, or
      *                   <tt>FALSE</tt> otherwise.
      * @public
-     * @see handle()
+     * @see          handle()
+     * @noinspection PhpParameterNameChangedDuringInheritanceInspection
      */
     function render($mode, Doku_Renderer $renderer, $data): bool {
         if($mode != 'xhtml') return false;
@@ -170,6 +170,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             try {
                 $user_string  = $data['airtable'];
                 $display_type = $this->getDisplayType($user_string); //check type is set correctly
+                // MAIN PROGRAM:
                 switch(true) { //parse string based on type set
                     case ($display_type == "img"):
                         $decoded_array = $this->parseImageString($user_string);
@@ -191,13 +192,28 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
 
             } catch(InvalidAirtableString $e) {
                 $renderer->doc .= "<p style='color: red; font-weight: bold;'>Airtable Error: " . $e->getMessage() . "</p>";
-                return true;
+                return false;
             }
             //return true;
         }
 
         return false;
 
+    }
+
+    /**
+     * Sets the required parameters for type: image
+     * Also sets accepted values for specific parameters
+     *
+     * @param $user_string
+     * @return array The decoded string with the parameter names stored as keys
+     * @throws InvalidAirtableString
+     */
+    private function parseImageString($user_string): array {
+        $image_parameter_types  = array("type" => true, "table" => true, "where" => true, "alt-tag" => "", "image-size" => "large"); // accepted parameter names with default values or true if parameter is required.
+        $image_parameter_values = array("image-size" => ["", "small", "large", "full"]); // can be empty (substitute default), small, large, full
+        $image_query            = $this->getParameters($user_string);
+        return $this->checkParameters($image_query, $image_parameter_types, $image_parameter_values);
     }
 
     /**
@@ -228,18 +244,6 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             $decoded_type = "img";
         }
         return $decoded_type;
-    }
-
-    /**
-     * @param $user_string
-     * @return array
-     * @throws InvalidAirtableString
-     */
-    private function parseImageString($user_string): array {
-        $image_parameter_types  = array("type" => true, "table" => true, "where" => true, "alt-tag" => "", "image-size" => "large"); // accepted parameter names with default values or true if parameter is required.
-        $image_parameter_values = array("image-size" => ["", "small", "large", "full"]); // can be empty (substitute default), small, large, full
-        $image_query            = $this->getParameters($user_string);
-        return $this->checkParameters($image_query, $image_parameter_types, $image_parameter_values);
     }
 
     /**
@@ -296,6 +300,25 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
     }
 
     /**
+     * Recursive method to find an array(needle) within the JSON response (haystack
+     *
+     * @param        $haystack
+     * @param string $needle
+     * @return false|array
+     */
+    private function parseImageRequest($haystack, $needle = "thumbnails") {
+        foreach($haystack as $key) {
+            if(is_array($key)) {
+                if(array_key_exists($needle, $key)) {
+                    return $key[$needle];
+                }
+                return $this->parseImageRequest($key, $needle);
+            }
+        }
+        return false;
+    }
+
+    /**
      * Method to send an airtable API request
      *
      * @param $request
@@ -320,25 +343,6 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             );
         }
         return $response;
-    }
-
-    /**
-     * Recursive method to find an array(needle) within the JSON response (haystack
-     *
-     * @param        $haystack
-     * @param string $needle
-     * @return false|array
-     */
-    private function parseImageRequest($haystack, $needle = "thumbnails") {
-        foreach($haystack as $key) {
-            if(is_array($key)) {
-                if(array_key_exists($needle, $key)) {
-                    return $key[$needle];
-                }
-                return $this->parseImageRequest($key, $needle);
-            }
-        }
-        return false;
     }
 
 }
