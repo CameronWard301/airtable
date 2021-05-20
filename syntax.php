@@ -10,6 +10,12 @@
 // must be run within DokuWiki
 if(!defined('DOKU_INC')) die();
 
+/**
+ * Class InvalidAirtableString
+ *
+ * Handles the airtable query string exception and
+ *
+ */
 class InvalidAirtableString extends Exception {
     public function errorMessage(): string {
         return $this->getMessage();
@@ -33,13 +39,6 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
     function getType(): string {
         return 'substition';
     }
-
-    /**
-     * What kind of syntax do we allow (optional)
-     */
-//    function getAllowedTypes() {
-//        return array();
-//    }
 
     /**
      * Define how this plugin is handled regarding paragraphs.
@@ -72,7 +71,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @static
      */
     function getSort(): int {
-        return 1; //
+        return 1;
     }
 
     /**
@@ -161,6 +160,8 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @noinspection PhpParameterNameChangedDuringInheritanceInspection
      */
     function render($mode, Doku_Renderer $renderer, $data): bool {
+        //<airtable>Type: Image, Table: tblwWxohDeMeAAzdW, WHERE: {Ref #} = 19, image-size: small, alt-tag: marble-machine-x</airtable>
+
         if($mode != 'xhtml') return false;
 
         if(!empty($data['airtable'])) {
@@ -174,31 +175,40 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                 switch(true) { //parse string based on type set
                     case ($display_type == "img"):
                         $decoded_array = $this->parseImageString($user_string);
-                        $query_string  = ($decoded_array['table'] . '?filterByFormula=' . urlencode($decoded_array['where']));
+                        $query_string  = $decoded_array['table'] . '/' . urlencode($decoded_array['record-id']);
                         $request       = json_decode($this->sendRequest($query_string), true);
                         $thumbnails    = $this->parseImageRequest($request);
                         if($thumbnails === false or $thumbnails === null) {
                             throw new InvalidAirtableString("Unknown 'parseImageRequest' error");
                         }
-                        $html_tag      = '
-                        <a href="' . $thumbnails['full']['url'] . '" target="_blank" rel="noopener">
-                            <img alt ="' . $decoded_array['alt-tag'] . '" src="' . $thumbnails[$decoded_array['image-size']]['url'] . '">
-                        </a>';
-                        $renderer->doc .= $html_tag;
+                        $renderer->doc .= $this->renderImage($decoded_array, $thumbnails);
+                        return true;
+                    case ($display_type == "record"): //if one record display as a template
+                        $decoded_array = $this->parseRecordString($user_string);
+                        $query_string  = $decoded_array['table'] . '?fields%5B%5D=' . $decoded_array['fields'] . '&filterByFormula=' . urlencode($decoded_array['where']);
                         break;
                     default:
-                        return true;
+                        return false;
                 }
-
             } catch(InvalidAirtableString $e) {
                 $renderer->doc .= "<p style='color: red; font-weight: bold;'>Airtable Error: " . $e->getMessage() . "</p>";
                 return false;
             }
-            //return true;
         }
-
         return false;
+    }
 
+    /**
+     * HTML for rendering a single image:
+     *
+     * @param $data
+     * @param $images
+     * @return string
+     */
+    private function renderImage($data, $images): string {
+        return '<a href="' . $images['full']['url'] . '" target="_blank" rel="noopener">
+                     <img alt ="' . $data['alt-tag'] . '" src="' . $images[$data['image-size']]['url'] . '">
+                </a>';
     }
 
     /**
@@ -210,10 +220,23 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @throws InvalidAirtableString
      */
     private function parseImageString($user_string): array {
-        $image_parameter_types  = array("type" => true, "table" => true, "where" => true, "alt-tag" => "", "image-size" => "large"); // accepted parameter names with default values or true if parameter is required.
+        $image_parameter_types  = array("type" => true, "record-url" => true, 'table' => true, 'record-id' => true, "alt-tag" => "", "image-size" => "large"); // accepted parameter names with default values or true if parameter is required.
         $image_parameter_values = array("image-size" => ["", "small", "large", "full"]); // can be empty (substitute default), small, large, full
-        $image_query            = $this->getParameters($user_string);
+        $image_query            = $this->decodeRecordURL($this->getParameters($user_string));
         return $this->checkParameters($image_query, $image_parameter_types, $image_parameter_values);
+    }
+
+    /**
+     * Sets the required parameters for type: record
+     * @param $user_string
+     * @return array
+     * @throws InvalidAirtableString
+     */
+    private function parseRecordString($user_string): array {
+        $record_parameter_types  = array("type" => true, "table" => true, "fields" => true, "record-id" => "");
+        $record_parameter_values = array();
+        $record_query            = $this->decodeRecordURL($this->getParameters($user_string));
+        return $this->checkParameters($record_query, $record_parameter_types, $record_parameter_values);
     }
 
     /**
@@ -224,16 +247,17 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @throws InvalidAirtableString
      */
     private function getDisplayType($user_string): string {
-        $type = substr($user_string, 0, strpos($user_string, ","));
+        $type = substr($user_string, 0, strpos($user_string, " | "));
         if($type == "") {
             throw new InvalidAirtableString("Missing Type Parameter / Not Enough Parameters");
         }
-        $decoded_type = explode("type: ", strtolower($type))[1];
+        $decoded_string = explode("type: ", strtolower($type))[1];
+        $decoded_type   = str_replace('"', '', $decoded_string);
         if($decoded_type == null) {
             throw new InvalidAirtableString("Missing Type Parameter");
         }
         $decoded_type   = strtolower($decoded_type);
-        $accepted_types = array("img", "image", "picture", "text", "txt", "table", "tbl");
+        $accepted_types = array("img", "image", "picture", "text", "txt", "table", "tbl", "record");
         if(!array_search($decoded_type, $accepted_types)) {
             throw new InvalidAirtableString(
                 "Invalid Type Parameter: " . htmlspecialchars($decoded_type) . "
@@ -254,12 +278,39 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      */
     private function getParameters(string $user_string): array {
         $query        = array();
-        $string_array = explode(", ", $user_string);
+        $string_array = explode(' | ', $user_string);
         foreach($string_array as $item) {
-            $parameter                        = explode(": ", $item);
-            $query[strtolower($parameter[0])] = $parameter[1]; //creates key value pairs for parameters e.g. [type] = "image"
+            $parameter                        = explode(": ", $item); //creates key value pairs for parameters e.g. [type] = "image"
+            $query[strtolower($parameter[0])] = str_replace('"', '', $parameter[1]); //removes quotes
+        }
+        if(array_key_exists("fields", $query)) { // separate field names into an array if it exists
+            $fields          = array_map("trim", explode(",", $query['fields'])); //todo: url encode fields here?
+            $query['fields'] = $fields;
         }
         return $query;
+    }
+
+    /**
+     * Extracts the table, view and record information from record-url
+     *
+     * @param $query
+     * @return mixed
+     * @throws InvalidAirtableString
+     */
+    private function decodeRecordURL($query) {
+        if(array_key_exists("record-url", $query)) {
+            //// "tbl\w+|viw\w+|rec\w+/ig" One line preg match?
+            preg_match("/tbl\w+/i", $query["record-url"], $table); //extract table, view, record from url
+            preg_match("/viw\w+/i", $query["record-url"], $view);
+            preg_match("/rec\w+/i", $query["record-url"], $record_id);
+
+            $query['table']     = $table[0];
+            $query['view']      = $view[0];
+            $query['record-id'] = $record_id[0];
+            return $query;
+        } else {
+            throw new InvalidAirtableString("Missing record-url parameter");
+        }
     }
 
     /**
@@ -300,7 +351,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
     }
 
     /**
-     * Recursive method to find an array(needle) within the JSON response (haystack
+     * Recursive method to find an array (needle) within the JSON response (haystack)
      *
      * @param        $haystack
      * @param string $needle
