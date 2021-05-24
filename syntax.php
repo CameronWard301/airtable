@@ -59,7 +59,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @static
      */
     function getPType(): string {
-        return 'block';
+        return 'normal';
     }
 
     /**
@@ -175,21 +175,24 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                 switch(true) { //parse string based on type set
                     case ($display_type == "img"):
                         $decoded_array = $this->parseImageString($user_string);
-                        $query_string  = $decoded_array['table'] . '/' . urlencode($decoded_array['record-id']);
-                        $response      = json_decode($this->sendRequest($query_string), true);
+                        $response      = json_decode($this->sendRequest($decoded_array), true);
                         $thumbnails    = $this->parseImageRequest($response);
                         if($thumbnails === false or $thumbnails === null) {
                             throw new InvalidAirtableString("Unknown 'parseImageRequest' error");
                         }
-                        $renderer->doc .= $this->renderImage($decoded_array, $thumbnails);
+                        $renderer->doc .= $this->renderImage($decoded_array, $thumbnails, "max-width: 250px;");
                         return true;
                     case ($display_type == "record"): //if one record display as a template
                         $decoded_array               = $this->parseRecordString($user_string);
-                        $query_string                = $decoded_array['table'] . '/' . urlencode($decoded_array['record-id']);
-                        $response                    = json_decode($this->sendRequest($query_string), true);
+                        $response                    = json_decode($this->sendRequest($decoded_array), true);
                         $decoded_array['thumbnails'] = $this->parseImageRequest($response);
                         $renderer->doc               .= $this->renderRecord($decoded_array, $response);
-                        break;
+                        return true;
+                    case ($display_type == "txt"):
+                        $decoded_array = $this->parseTextString($user_string);
+                        $response      = json_decode($this->sendRequest($decoded_array), true);
+                        $renderer->doc .= $this->renderText($decoded_array, $response);
+                        return true;
                     default:
                         return false;
                 }
@@ -210,10 +213,19 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @return string
      */
     private function renderImage($data, $images, $image_styles = ""): string {
+        if($data['position'] == "centre") {
+            $position = "mediacentre";
+        } elseif($data['position'] == 'right') {
+            $position = "mediaright";
+        } elseif($data['position'] == "left") {
+            $position = "medialeft";
+        } else {
+            $position = '';
+        }
         return '
         <div>
             <a href="' . $images['full']['url'] . '" target="_blank" rel="noopener">
-                <img alt ="' . $data['alt-tag'] . '" src="' . $images[$data['image-size']]['url'] . '" ' . $image_styles . '>
+                <img alt ="' . $data['alt-tag'] . '" src="' . $images[$data['image-size']]['url'] . '" style="' . $image_styles . '" class="airtable-image' . $position . '">
             </a>
         </div>';
     }
@@ -230,10 +242,10 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      */
     private function renderRecord($decoded_array, $response): string {
         $fields = $decoded_array['fields'];
-        $html   = '<div style="padding-bottom: 10px">';
+        $html   = '<div style="margin-bottom: 20px; clear: both">';
         if($decoded_array['thumbnails'] !== false) {
             $decoded_array['image-size'] = "large";
-            $image_styles                = 'style="float: right; max-width: 350px; margin-left: 10px"';
+            $image_styles                = 'float: right; max-width: 350px; margin-left: 10px';
             $html                        .= $this->renderImage($decoded_array, $decoded_array['thumbnails'], $image_styles);
         }
         foreach($fields as $field) {
@@ -246,7 +258,21 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                 <p>' . $response['fields'][$field] . '</p>
             </div>';
         }
+        $html .= '<div style="clear: both;"></div>';
         $html .= '</div>';
+        return $html;
+    }
+
+    private function renderText($decoded_array, $response): string {
+        $fields = $decoded_array['fields'];
+        $html   = '';
+        foreach($fields as $field) {
+            if(!array_key_exists($field, $response['fields'])) { //if field is not present in array:
+                throw new InvalidAirtableString("Invalid field name: " . htmlspecialchars($field));
+            }
+            $html .= $response['fields'][$field] . ' ';
+        }
+        $html = rtrim($html);
         return $html;
     }
 
@@ -259,8 +285,8 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @throws InvalidAirtableString
      */
     private function parseImageString($user_string): array {
-        $image_parameter_types  = array("type" => true, "record-url" => true, 'table' => true, 'record-id' => true, "alt-tag" => "", "image-size" => "large"); // accepted parameter names with default values or true if parameter is required.
-        $image_parameter_values = array("image-size" => ["", "small", "large", "full"]); // can be empty (substitute default), small, large, full
+        $image_parameter_types  = array("type" => true, "record-url" => true, 'table' => true, 'record-id' => true, "alt-tag" => "", "image-size" => "large", "position" => "block"); // accepted parameter names with default values or true if parameter is required.
+        $image_parameter_values = array("image-size" => ["", "small", "large", "full"], "position" => ['', 'left', 'centre', 'right', 'block']); // can be empty (substitute default), small, large, full
         $image_query            = $this->decodeRecordURL($this->getParameters($user_string));
         return $this->checkParameters($image_query, $image_parameter_types, $image_parameter_values);
     }
@@ -273,6 +299,20 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      */
     private function parseRecordString($user_string): array {
         $record_parameter_types  = array("type" => true, "table" => true, "fields" => true, "record-id" => "", "alt-tag" => "");
+        $record_parameter_values = array();
+        $record_query            = $this->decodeRecordURL($this->getParameters($user_string));
+        return $this->checkParameters($record_query, $record_parameter_types, $record_parameter_values);
+    }
+
+    /**
+     * Sets the required parameters for type: text
+     *
+     * @param $user_string
+     * @return array
+     * @throws InvalidAirtableString
+     */
+    private function parseTextString($user_string): array {
+        $record_parameter_types  = array("type" => true, "table" => true, "fields" => true, "record-id" => "");
         $record_parameter_values = array();
         $record_query            = $this->decodeRecordURL($this->getParameters($user_string));
         return $this->checkParameters($record_query, $record_parameter_types, $record_parameter_values);
@@ -305,6 +345,9 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
         }
         if($decoded_type == "img" || $decoded_type == "image" || $decoded_type == "picture") {
             $decoded_type = "img";
+        }
+        if($decoded_type == "text") {
+            $decoded_type = "txt";
         }
         return $decoded_type;
     }
@@ -408,7 +451,6 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                 } else {
                     return $search; // image attachment found
                 }
-
             }
         }
         return false;
@@ -417,11 +459,12 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
     /**
      * Method to send an airtable API request
      *
-     * @param $request
+     * @param $data
      * @return false|string //JSON String
      * @throws InvalidAirtableString
      */
-    private function sendRequest($request) {
+    private function sendRequest($data) {
+        $request  = $data['table'] . '/' . urlencode($data['record-id']);
         $url      = 'https://api.airtable.com/v0/' . BASE_ID . '/' . $request;
         $settings = array(
             'http' => array(
