@@ -587,7 +587,6 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
         $response = json_decode(curl_exec($curl), true); //decode JSON to associative array
 
         if(curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
-            $message = '';
             if(key_exists("error", $response)) {
                 $message = $response['error']['message'];
             } else {
