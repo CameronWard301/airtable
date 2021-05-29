@@ -177,7 +177,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                     case ($display_type == "img"):
                         $decoded_array = $this->parseImageString($user_string);
                         $response      = $this->sendRecordRequest($decoded_array);
-                        $thumbnails    = $this->parseImageRequest($response);
+                        $thumbnails    = $this->findMedia($response);
                         if($thumbnails === false or $thumbnails === null) {
                             throw new InvalidAirtableString("Unknown 'parseImageRequest' error");
                         }
@@ -186,7 +186,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                     case ($display_type == "record"): //if one record display as a template
                         $decoded_array               = $this->parseRecordString($user_string);
                         $response                    = $this->sendRecordRequest($decoded_array);
-                        $decoded_array['thumbnails'] = $this->parseImageRequest($response);
+                        $decoded_array['thumbnails'] = $this->findMedia($response);
                         $renderer->doc               .= $this->renderRecord($decoded_array, $response);
                         return true;
                     case ($display_type == "txt"):
@@ -197,7 +197,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                     case ($display_type = "tbl"):
                         $decoded_array               = $this->parseTableString($user_string);
                         $response                    = $this->sendTableRequest($decoded_array);
-                        $decoded_array['thumbnails'] = $this->parseImageRequest($response);
+                        $decoded_array['thumbnails'] = $this->findMedia($response);
                         if(count($response['records']) == 1) { //if query resulted in one record, render as a template
                             $renderer->doc .= $this->renderRecord($decoded_array, $response['records'][0]);
                         } else {
@@ -232,6 +232,10 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             $position = "medialeft";
         } else {
             $position = '';
+        }
+
+        if(!key_exists('image-size', $data)) {
+            $data['image-size'] = 'large';
         }
         return '
         <div>
@@ -299,7 +303,27 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
     }
 
     private function renderTable($decoded_array, $response): string {
-        return "TABLE GOES HERE";
+        $html = '<table style="width: 100%; table-layout: fixed;"><thead><tr>';
+        foreach($decoded_array['fields'] as $field) {
+            $html .= '<th>' . $field . '</th>';
+        }
+        $html .= '</tr></thead><tbody>';
+        foreach($response['records'] as $record) {
+            $html .= '<tr>';
+            foreach($decoded_array['fields'] as $field) {
+                if(is_array($record['fields'][$field])) {
+                    if($image = $this->findMedia($record['fields'][$field])) {
+                        $field = $this->renderImage($decoded_array, $image);
+                        $html  .= '<td>' . $field . '</td>';
+                        continue;
+                    }
+                }
+                $html .= '<td>' . $record['fields'][$field] . '</td>';
+            }
+            $html .= '</tr>';
+        }
+        $html .= '</tbody></table>';
+        return $html;
     }
 
     /**
@@ -482,13 +506,13 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @param string $needle
      * @return false|array
      */
-    private function parseImageRequest($haystack, $needle = "thumbnails") {
+    private function findMedia($haystack, $needle = "type") {
         foreach($haystack as $key) {
             if(is_array($key)) {
                 if(array_key_exists($needle, $key)) {
-                    return $key[$needle];
+                    return $key;
                 }
-                $search = $this->parseImageRequest($key, $needle);
+                $search = $this->findMedia($key, $needle);
                 if($search === false) {
                     continue;
                 } else {
