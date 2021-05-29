@@ -9,3 +9,36 @@
     /*transform: scale(1.05);*/
     opacity: 70%;
 }
+
+.airtable-record {
+    margin-bottom: 50px;
+    clear: both
+}
+
+.airtable-record h3 {
+    clear: none;
+}
+
+.airtable-video {
+    margin: 0.8%;
+    border-radius: 2%;
+}
+
+.airtable-table {
+    /*width: 800px;*/
+    /*table-layout: fixed;*/
+    border-collapse: collapse;
+}
+
+.airtable-table tbody {
+    overflow: auto;
+    height: 100px;
+}
+
+.airtable-table th td {
+    width: 200px;
+}
+
+.airtable-table img, object, embed, iframe, video, audio {
+    width: 250px !important;
+}

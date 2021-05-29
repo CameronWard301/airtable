@@ -181,9 +181,9 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                         if($thumbnails === false or $thumbnails === null) {
                             throw new InvalidAirtableString("Unknown 'parseImageRequest' error");
                         }
-                        $renderer->doc .= $this->renderImage($decoded_array, $thumbnails, "max-width: 250px;");
+                        $renderer->doc .= $this->renderMedia($decoded_array, $thumbnails, "max-width: 250px;");
                         return true;
-                    case ($display_type == "record"): //if one record display as a template
+                    case ($display_type == "record"):
                         $decoded_array               = $this->parseRecordString($user_string);
                         $response                    = $this->sendRecordRequest($decoded_array);
                         $decoded_array['thumbnails'] = $this->findMedia($response);
@@ -198,7 +198,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                         $decoded_array               = $this->parseTableString($user_string);
                         $response                    = $this->sendTableRequest($decoded_array);
                         $decoded_array['thumbnails'] = $this->findMedia($response);
-                        if(count($response['records']) == 1) { //if query resulted in one record, render as a template
+                        if(count($response['records']) == 1) { //if query resulted in one record, render as a template:
                             $renderer->doc .= $this->renderRecord($decoded_array, $response['records'][0]);
                         } else {
                             $renderer->doc .= $this->renderTable($decoded_array, $response);
@@ -216,14 +216,49 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
     }
 
     /**
-     * HTML for rendering a single image:
+     * Method that chooses the correct rendering type for the given media:
+     *
+     * @param        $data
+     * @param        $media
+     * @param string $media_styles
+     * @return string
+     * @throws InvalidAirtableString
+     */
+    private function renderMedia($data, $media, $media_styles = ""): string {
+        $type = $media['type'];
+        if($type == 'image/jpeg' || $type == 'image/jpg' || $type == 'image/png') {
+            return $this->renderImage($data, $media, $media_styles);
+        }
+        if($type == 'video/mp4' || $type == 'video/quicktime') {
+            return $this->renderVideo($media, $media_styles);
+        }
+        throw new InvalidAirtableString("Unknown media type: " . $type);
+    }
+
+    /**
+     * Generates HTML for rendering a video
+     *
+     * @param $video
+     * @param $video_styles
+     * @return string
+     */
+    private function renderVideo($video, $video_styles): string {
+        return '<video controls class="airtable-video" style="' . $video_styles . '"><source src="' . $video["url"] . '" type="video/mp4"></video>';
+    }
+
+    /**
+     * Generates HTML for rendering a single image:
      *
      * @param        $data
      * @param        $images
      * @param string $image_styles
      * @return string
+     * @throws InvalidAirtableString
      */
     private function renderImage($data, $images, $image_styles = ""): string {
+        if(!key_exists('thumbnails', $images)) {
+            throw new InvalidAirtableString('Could not find thumbnails in image query');
+        }
         if($data['position'] == "centre") {
             $position = "mediacentre";
         } elseif($data['position'] == 'right') {
@@ -239,8 +274,8 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
         }
         return '
         <div>
-            <a href="' . $images['full']['url'] . '" target="_blank" rel="noopener">
-                <img alt ="' . $data['alt-tag'] . '" src="' . $images[$data['image-size']]['url'] . '" style="' . $image_styles . '" class="airtable-image' . $position . '">
+            <a href="' . $images['thumbnails']['full']['url'] . '" target="_blank" rel="noopener" title="' . $images["filename"] . '">
+                <img alt ="' . $data['alt-tag'] . '" src="' . $images['thumbnails'][$data['image-size']]['url'] . '" style="' . $image_styles . '" class="airtable-image' . $position . '">
             </a>
         </div>';
     }
@@ -257,11 +292,11 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      */
     private function renderRecord($decoded_array, $response): string {
         $fields = $decoded_array['fields'];
-        $html   = '<div style="margin-bottom: 50px; clear: both">';
+        $html   = '<div class="airtable-record">';
         if($decoded_array['thumbnails'] !== false) {
             $decoded_array['image-size'] = "large";
             $image_styles                = 'float: right; max-width: 350px; margin-left: 10px';
-            $html                        .= $this->renderImage($decoded_array, $decoded_array['thumbnails'], $image_styles);
+            $html                        .= $this->renderMedia($decoded_array, $decoded_array['thumbnails'], $image_styles);
         }
         foreach($fields as $field) {
             if(!array_key_exists($field, $response['fields'])) { //if field is not present in array:
@@ -302,8 +337,16 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
         return $html;
     }
 
+    /**
+     * Method for rendering a table
+     *
+     * @param $decoded_array
+     * @param $response
+     * @return string
+     * @throws InvalidAirtableString
+     */
     private function renderTable($decoded_array, $response): string {
-        $html = '<table style="width: 100%; table-layout: fixed;"><thead><tr>';
+        $html = '<div style="overflow-x: auto"><table class="airtable-table"><thead><tr>';
         foreach($decoded_array['fields'] as $field) {
             $html .= '<th>' . $field . '</th>';
         }
@@ -313,7 +356,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             foreach($decoded_array['fields'] as $field) {
                 if(is_array($record['fields'][$field])) {
                     if($image = $this->findMedia($record['fields'][$field])) {
-                        $field = $this->renderImage($decoded_array, $image);
+                        $field = $this->renderMedia($decoded_array, $image);
                         $html  .= '<td>' . $field . '</td>';
                         continue;
                     }
@@ -322,7 +365,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             }
             $html .= '</tr>';
         }
-        $html .= '</tbody></table>';
+        $html .= '</tbody></table></div>';
         return $html;
     }
 
@@ -407,6 +450,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             <br>Accepted Types: " . implode(" | ", $accepted_types)
             );
         }
+        //Set to a standard type:
         if($decoded_type == "img" || $decoded_type == "image" || $decoded_type == "picture") {
             $decoded_type = "img";
         }
