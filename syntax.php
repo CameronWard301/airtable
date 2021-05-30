@@ -425,7 +425,6 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
         return $this->checkParameters($text_query, $text_parameter_types, $text_parameter_values);
     }
 
-
     /**
      * parse query string and return the type
      *
