@@ -10,6 +10,12 @@
 // must be run within DokuWiki
 if(!defined('DOKU_INC')) die();
 
+/**
+ * Class InvalidAirtableString
+ *
+ * Handles the airtable query string exception and
+ *
+ */
 class InvalidAirtableString extends Exception {
     public function errorMessage(): string {
         return $this->getMessage();
@@ -35,13 +41,6 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
     }
 
     /**
-     * What kind of syntax do we allow (optional)
-     */
-//    function getAllowedTypes() {
-//        return array();
-//    }
-
-    /**
      * Define how this plugin is handled regarding paragraphs.
      *
      * <p>
@@ -60,7 +59,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @static
      */
     function getPType(): string {
-        return 'block';
+        return 'normal';
     }
 
     /**
@@ -72,7 +71,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @static
      */
     function getSort(): int {
-        return 1; //
+        return 1;
     }
 
     /**
@@ -84,11 +83,11 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @see render()
      */
     function connectTo($mode) {
-        $this->Lexer->addEntryPattern('<airtable>', $mode, 'plugin_airtable');
+        $this->Lexer->addEntryPattern('{{airtable>', $mode, 'plugin_airtable');
     }
 
     function postConnect() {
-        $this->Lexer->addExitPattern('</airtable>', 'plugin_airtable');
+        $this->Lexer->addExitPattern('}}', 'plugin_airtable');
     }
 
     /**
@@ -161,44 +160,240 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @noinspection PhpParameterNameChangedDuringInheritanceInspection
      */
     function render($mode, Doku_Renderer $renderer, $data): bool {
+        //<airtable>Type: Image, Table: tblwWxohDeMeAAzdW, WHERE: {Ref #} = 19, image-size: small, alt-tag: marble-machine-x</airtable>
+
         if($mode != 'xhtml') return false;
 
         if(!empty($data['airtable'])) {
 
             define('BASE_ID', $this->getConf('Base_ID'));
             define('API_KEY', $this->getConf('API_Key'));
+            define('MAX_RECORDS', $this->getConf('Max_Records'));
             try {
                 $user_string  = $data['airtable'];
                 $display_type = $this->getDisplayType($user_string); //check type is set correctly
                 // MAIN PROGRAM:
                 switch(true) { //parse string based on type set
-                    case ($display_type == "img"):
-                        $decoded_array = $this->parseImageString($user_string);
-                        $query_string  = ($decoded_array['table'] . '?filterByFormula=' . urlencode($decoded_array['where']));
-                        $request       = json_decode($this->sendRequest($query_string), true);
-                        $thumbnails    = $this->parseImageRequest($request);
+                    case ($display_type === "tbl"):
+                        $parameter_array               = $this->parseTableString($user_string);
+                        $api_response                  = $this->sendTableRequest($parameter_array);
+                        $parameter_array['thumbnails'] = $this->findMedia($api_response);
+                        if(count($api_response['records']) == 1) { //if query resulted in one record, render as a template:
+                            $renderer->doc .= $this->renderRecord($parameter_array, $api_response['records'][0]);
+                        } else {
+                            $renderer->doc .= $this->renderTable($parameter_array, $api_response);
+                        }
+                        return true;
+                    case ($display_type === "record"):
+                        $parameter_array               = $this->parseRecordString($user_string);
+                        $api_response                  = $this->sendRecordRequest($parameter_array);
+                        $parameter_array['thumbnails'] = $this->findMedia($api_response);
+                        $renderer->doc                 .= $this->renderRecord($parameter_array, $api_response);
+                        return true;
+                    case ($display_type === "img"):
+                        $parameter_array = $this->parseImageString($user_string);
+                        $api_response    = $this->sendRecordRequest($parameter_array);
+                        $thumbnails      = $this->findMedia($api_response);
                         if($thumbnails === false or $thumbnails === null) {
                             throw new InvalidAirtableString("Unknown 'parseImageRequest' error");
                         }
-                        $html_tag      = '
-                        <a href="' . $thumbnails['full']['url'] . '" target="_blank" rel="noopener">
-                            <img alt ="' . $decoded_array['alt-tag'] . '" src="' . $thumbnails[$decoded_array['image-size']]['url'] . '">
-                        </a>';
-                        $renderer->doc .= $html_tag;
-                        break;
-                    default:
+                        $renderer->doc .= $this->renderMedia($parameter_array, $thumbnails, "max-width: 250px;");
                         return true;
+                    case ($display_type === "txt"):
+                        $parameter_array = $this->parseTextString($user_string);
+                        $api_response    = $this->sendRecordRequest($parameter_array);
+                        $renderer->doc   .= $this->renderText($parameter_array, $api_response);
+                        return true;
+                    default:
+                        return false;
                 }
-
             } catch(InvalidAirtableString $e) {
                 $renderer->doc .= "<p style='color: red; font-weight: bold;'>Airtable Error: " . $e->getMessage() . "</p>";
                 return false;
             }
-            //return true;
+        }
+        return false;
+    }
+
+    /**
+     * Method for rendering a table
+     *
+     * @param $parameter_array
+     * @param $api_response
+     * @return string
+     * @throws InvalidAirtableString
+     */
+    private function renderTable($parameter_array, $api_response): string {
+        $html = '<div style="overflow-x: auto"><table class="airtable-table"><thead><tr>';
+        foreach($parameter_array['fields'] as $field) {
+            $html .= '<th>' . $field . '</th>';
+        }
+        $html .= '</tr></thead><tbody>';
+        foreach($api_response['records'] as $record) {
+            $html .= '<tr>';
+            foreach($parameter_array['fields'] as $field) {
+                if(is_array($record['fields'][$field])) {
+                    if($image = $this->findMedia($record['fields'][$field])) {
+                        $field = $this->renderMedia($parameter_array, $image);
+                        $html  .= '<td>' . $field . '</td>';
+                        continue;
+                    }
+                }
+                $html .= '<td>' . $this->renderAnyExternalLinks(htmlspecialchars($record['fields'][$field])) . '</td>';
+            }
+            $html .= '</tr>';
+        }
+        $html .= '</tbody></table></div>';
+        return $html;
+    }
+
+    /**
+     * Private Method for rendering a single record.
+     * Fields and field data appear on the left. If there is an image present,
+     * it will appear to the top right of the text
+     *
+     * @param $parameter_array
+     * @param $api_response
+     * @return string
+     * @throws InvalidAirtableString
+     */
+    private function renderRecord($parameter_array, $api_response): string {
+        $fields = $parameter_array['fields'];
+        $html   = '<div class="airtable-record">';
+        if($parameter_array['thumbnails'] !== false) {
+            $parameter_array['image-size'] = "large";
+            $image_styles                  = 'float: right; max-width: 350px; margin-left: 10px';
+            $html                          .= $this->renderMedia($parameter_array, $parameter_array['thumbnails'], $image_styles);
+        }
+        foreach($fields as $field) {
+            if(!array_key_exists($field, $api_response['fields'])) { //if field is not present in array:
+                throw new InvalidAirtableString("Invalid field name: " . htmlspecialchars($field));
+            }
+            if(is_array($api_response['fields'][$field])) {
+                continue;
+            }
+            $html .= '
+            <div>
+                <h3>' . $field . '</h3>
+                <p>' . $this->renderAnyExternalLinks($api_response['fields'][$field]) . '</p>
+            </div>';
+        }
+        $html .= '<div style="clear: both;"></div>';
+        $html .= '</div>';
+        return $html;
+    }
+
+    /**
+     * Generates HTML for rendering a single image:
+     *
+     * @param        $data
+     * @param        $images
+     * @param string $image_styles
+     * @return string
+     * @throws InvalidAirtableString
+     */
+    private function renderImage($data, $images, $image_styles = ""): string {
+        if(!key_exists('thumbnails', $images)) {
+            throw new InvalidAirtableString('Could not find thumbnails in image query');
+        }
+        if($data['position'] == "centre") {
+            $position = "mediacenter";
+        } elseif($data['position'] == 'right') {
+            $position = "mediaright";
+        } elseif($data['position'] == "left") {
+            $position = "medialeft";
+        } else {
+            $position = '';
         }
 
-        return false;
+        if(!key_exists('image-size', $data)) {
+            $data['image-size'] = 'large';
+        }
+        return '
+        <div>
+            <a href="' . $images['thumbnails']['full']['url'] . '" target="_blank" rel="noopener" title="' . $images["filename"] . '">
+                <img alt ="' . $data['alt-tag'] . '" src="' . $images['thumbnails'][$data['image-size']]['url'] . '" style="' . $image_styles . '" class="airtable-image ' . $position . '">
+            </a>
+        </div>';
+    }
 
+    /**
+     * Private method for rendering text.
+     *
+     * @param $parameter_array
+     * @param $api_response
+     * @return string
+     * @throws InvalidAirtableString
+     */
+    private function renderText($parameter_array, $api_response): string {
+        $fields = $parameter_array['fields'];
+        $html   = '';
+        foreach($fields as $field) {
+            if(!array_key_exists($field, $api_response['fields'])) { //if field is not present in array:
+                throw new InvalidAirtableString("Invalid field name: " . htmlspecialchars($field));
+            }
+            $html .= $this->renderAnyExternalLinks(htmlspecialchars($api_response['fields'][$field])) . ' ';
+        }
+        $html = rtrim($html);
+        return $html;
+    }
+
+    /**
+     * Method that chooses the correct rendering type for the given media:
+     *
+     * @param        $data
+     * @param        $media
+     * @param string $media_styles
+     * @return string
+     * @throws InvalidAirtableString
+     */
+    private function renderMedia($data, $media, $media_styles = ""): string {
+        $type = $media['type'];
+        if($type == 'image/jpeg' || $type == 'image/jpg' || $type == 'image/png') {
+            return $this->renderImage($data, $media, $media_styles);
+        }
+        if($type == 'video/mp4' || $type == 'video/quicktime') {
+            return $this->renderVideo($media, $media_styles);
+        }
+        throw new InvalidAirtableString("Unknown media type: " . $type);
+    }
+
+    /**
+     * Generates HTML for rendering a video
+     *
+     * @param $video
+     * @param $video_styles
+     * @return string
+     */
+    private function renderVideo($video, $video_styles): string {
+        return '<video controls class="airtable-video" style="' . $video_styles . '"><source src="' . $video["url"] . '" type="video/mp4"></video>';
+    }
+
+    /**
+     * Sets the required parameters for type: table
+     *
+     * @param $user_string
+     * @return array
+     * @throws InvalidAirtableString
+     */
+    private function parseTableString($user_string): array {
+        $table_parameter_types  = array("type" => true, "table" => true, "fields" => true, "record-url" => true, "where" => "", "order-by" => "", "order" => "asc", "max-records" => "");
+        $table_parameter_values = array("order" => ["asc", "desc"]);
+        $table_query            = $this->decodeRecordURL($this->getParameters($user_string));
+        return $this->checkParameters($table_query, $table_parameter_types, $table_parameter_values);
+    }
+
+    /**
+     * Sets the required parameters for type: record
+     * @param $user_string
+     * @return array
+     * @throws InvalidAirtableString
+     */
+    private function parseRecordString($user_string): array {
+        $record_parameter_types  = array("type" => true, "record-url" => true, "table" => true, "fields" => true, "record-id" => true, "alt-tag" => "");
+        $record_parameter_values = array();
+        $record_query            = $this->decodeRecordURL($this->getParameters($user_string));
+        return $this->checkParameters($record_query, $record_parameter_types, $record_parameter_values);
     }
 
     /**
@@ -210,10 +405,24 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @throws InvalidAirtableString
      */
     private function parseImageString($user_string): array {
-        $image_parameter_types  = array("type" => true, "table" => true, "where" => true, "alt-tag" => "", "image-size" => "large"); // accepted parameter names with default values or true if parameter is required.
-        $image_parameter_values = array("image-size" => ["", "small", "large", "full"]); // can be empty (substitute default), small, large, full
-        $image_query            = $this->getParameters($user_string);
+        $image_parameter_types  = array("type" => true, "record-url" => true, 'table' => true, 'record-id' => true, "alt-tag" => "", "image-size" => "large", "position" => "block"); // accepted parameter names with default values or true if parameter is required.
+        $image_parameter_values = array("image-size" => ["", "small", "large", "full"], "position" => ['', 'left', 'centre', 'right', 'block']); // can be empty (substitute default), small, large, full
+        $image_query            = $this->decodeRecordURL($this->getParameters($user_string));
         return $this->checkParameters($image_query, $image_parameter_types, $image_parameter_values);
+    }
+
+    /**
+     * Sets the required parameters for type: text
+     *
+     * @param $user_string
+     * @return array
+     * @throws InvalidAirtableString
+     */
+    private function parseTextString($user_string): array {
+        $text_parameter_types  = array("type" => true, "table" => true, "fields" => true, "record-id" => true, "record-url" => true);
+        $text_parameter_values = array();
+        $text_query            = $this->decodeRecordURL($this->getParameters($user_string));
+        return $this->checkParameters($text_query, $text_parameter_types, $text_parameter_values);
     }
 
     /**
@@ -224,24 +433,32 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @throws InvalidAirtableString
      */
     private function getDisplayType($user_string): string {
-        $type = substr($user_string, 0, strpos($user_string, ","));
+        $type = substr($user_string, 0, strpos($user_string, " | "));
         if($type == "") {
             throw new InvalidAirtableString("Missing Type Parameter / Not Enough Parameters");
         }
-        $decoded_type = explode("type: ", strtolower($type))[1];
+        $decoded_string = explode("type: ", strtolower($type))[1];
+        $decoded_type   = str_replace('"', '', $decoded_string);
         if($decoded_type == null) {
             throw new InvalidAirtableString("Missing Type Parameter");
         }
         $decoded_type   = strtolower($decoded_type);
-        $accepted_types = array("img", "image", "picture", "text", "txt", "table", "tbl");
+        $accepted_types = array("img", "image", "picture", "text", "txt", "table", "tbl", "record");
         if(!array_search($decoded_type, $accepted_types)) {
             throw new InvalidAirtableString(
                 "Invalid Type Parameter: " . htmlspecialchars($decoded_type) . "
             <br>Accepted Types: " . implode(" | ", $accepted_types)
             );
         }
+        //Set to a standard type:
         if($decoded_type == "img" || $decoded_type == "image" || $decoded_type == "picture") {
             $decoded_type = "img";
+        }
+        if($decoded_type == "text") {
+            $decoded_type = "txt";
+        }
+        if($decoded_type == "table") {
+            $decoded_type = "tbl";
         }
         return $decoded_type;
     }
@@ -254,12 +471,39 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      */
     private function getParameters(string $user_string): array {
         $query        = array();
-        $string_array = explode(", ", $user_string);
+        $string_array = explode(' | ', $user_string);
         foreach($string_array as $item) {
-            $parameter                        = explode(": ", $item);
-            $query[strtolower($parameter[0])] = $parameter[1]; //creates key value pairs for parameters e.g. [type] = "image"
+            $parameter                        = explode(": ", $item); //creates key value pairs for parameters e.g. [type] = "image"
+            $query[strtolower($parameter[0])] = str_replace('"', '', $parameter[1]); //removes quotes
+        }
+        if(array_key_exists("fields", $query)) { // separate field names into an array if it exists
+            $fields          = array_map("trim", explode(",", $query['fields'])); //todo: url encode fields here?
+            $query['fields'] = $fields;
         }
         return $query;
+    }
+
+    /**
+     * Extracts the table, view and record ID's from record-url
+     *
+     * @param $query
+     * @return mixed
+     * @throws InvalidAirtableString
+     */
+    private function decodeRecordURL($query) {
+        if(array_key_exists("record-url", $query)) {
+            //// "tbl\w+|viw\w+|rec\w+/ig" One line preg match?
+            preg_match("/tbl\w+/i", $query["record-url"], $table); //extract table, view, record from url
+            preg_match("/viw\w+/i", $query["record-url"], $view);
+            preg_match("/rec\w+/i", $query["record-url"], $record_id);
+
+            $query['table']     = urlencode($table[0]); //url encode each part
+            $query['view']      = urlencode($view[0]);
+            $query['record-id'] = urlencode($record_id[0]);
+            return $query;
+        } else {
+            throw new InvalidAirtableString("Missing record-url parameter");
+        }
     }
 
     /**
@@ -300,49 +544,150 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
     }
 
     /**
-     * Recursive method to find an array(needle) within the JSON response (haystack
+     * Method for checking text and replacing links with <a> tags for external linking
+     * If there are no links present, return the text with no modification
+     *
+     * @param $string // The string to find links in
+     * @return string
+     */
+    private function renderAnyExternalLinks($string): string {
+        $regular_expression = "/(?i)\b((?:https?:\/\/|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))/";
+
+        if(preg_match_all($regular_expression, $string, $url_matches)) { // store all url matches in the $url array
+            foreach($url_matches[0] as $link) {
+                if(strstr($link, ':') === false) { //if link is missing http, add it to the front of the url
+                    $url = 'http://' . $link;
+                } else {
+                    $url = $link;
+                }
+                $search  = $link;
+                $replace = '<a href = "' . $url . '" title = "' . $link . '" target = "_blank" rel = "noopener" class = "urlextern">' . $url . '</a>';
+                $string  = str_replace($search, $replace, $string);
+            }
+        }
+        return $string;
+    }
+
+    /**
+     * Recursive method to find an array (needle) within the JSON api_response (haystack)
      *
      * @param        $haystack
      * @param string $needle
      * @return false|array
      */
-    private function parseImageRequest($haystack, $needle = "thumbnails") {
+    private function findMedia($haystack, $needle = "type") {
         foreach($haystack as $key) {
             if(is_array($key)) {
                 if(array_key_exists($needle, $key)) {
-                    return $key[$needle];
+                    return $key;
                 }
-                return $this->parseImageRequest($key, $needle);
+                $search = $this->findMedia($key, $needle);
+                if($search === false) {
+                    continue;
+                } else {
+                    return $search; // image attachment found
+                }
             }
         }
         return false;
     }
 
     /**
-     * Method to send an airtable API request
+     * Method to encode a record request
      *
-     * @param $request
+     * @param $data
      * @return false|string //JSON String
      * @throws InvalidAirtableString
      */
-    private function sendRequest($request) {
-        $url      = 'https://api.airtable.com/v0/' . BASE_ID . '/' . $request;
-        $settings = array(
-            'http' => array(
-                'method' => 'GET',
-                'header' => 'Authorization: Bearer ' . API_KEY
-            )
-        );
-        $context  = stream_context_create($settings);
-        $response = @file_get_contents($url, false, $context);
-
-        if($http_response_header[0] != "HTTP/1.1 200 OK") { // if invalid request, return error:
-            throw new InvalidAirtableString(
-                $http_response_header[0] . " for URL: " . htmlspecialchars($url) .
-                '<br>Try checking the table name and where parameters'
-            );
-        }
-        return $response;
+    private function sendRecordRequest($data) {
+        $request = $data['table'] . '/' . urlencode($data['record-id']);
+        return $this->sendRequest($request);
     }
 
+    /**
+     * Method to encode a table request
+     *
+     * @param $data
+     * @return false|string
+     * @throws InvalidAirtableString
+     */
+    private function sendTableRequest($data) {
+        $request = $data['table'] . '?';
+        //Add each field to the request string
+        foreach($data['fields'] as $index => $field) {
+            if($index >= 1) {
+                $request .= '&' . urlencode('fields[]') . '=' . urlencode($field);
+            } else {
+                $request .= urlencode('fields[]') . '=' . urlencode($field); //don't add a '&' for the first field
+            }
+        }
+
+        //add filter:
+        if(key_exists('where', $data)) {
+            $request .= '&filterByFormula=' . urlencode($data['where']);
+        }
+
+        //Set max records:
+        if(key_exists('max-records', $data)) {
+            if((int) $data['max-records'] <= MAX_RECORDS) {
+                $max_records = $data['max-records'];
+            } else {
+                $max_records = MAX_RECORDS;
+            }
+        } else {
+            $max_records = MAX_RECORDS;
+        }
+        $request .= '&maxRecords=' . $max_records;
+
+        //set order by which field and order direction:
+        if(key_exists('order-by', $data)) {
+            $request .= '&' . urlencode('sort[0][field]') . '=' . urlencode($data['order-by']);
+        }
+        if(key_exists('order', $data)) {
+            $order = $data['order'];
+        } else {
+            $order = "asc";
+        }
+
+        $request .= '&' . urlencode('sort[0][direction]') . '=' . urlencode($order);
+
+        return $this->sendRequest($request);
+    }
+
+    /**
+     * Method to call the airtable API
+     *
+     * @param $request
+     * @return false|string
+     * @throws InvalidAirtableString
+     */
+    private function sendRequest($request) {
+        $url  = 'https://api.airtable.com/v0/' . BASE_ID . '/' . $request;
+        $curl = curl_init($url);
+        curl_setopt($curl, CURLOPT_URL, $url);
+        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+
+        $headers = array(
+            'Authorization: Bearer ' . API_KEY
+        );
+
+        curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
+
+        //TODO: remove once in production:
+        curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);//
+
+        $api_response = json_decode(curl_exec($curl), true); //decode JSON to associative array
+
+        if(curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
+            if(key_exists("error", $api_response)) {
+                $message = $api_response['error']['message'];
+            } else {
+                $message = "Unknown API api_response error";
+            }
+            throw new InvalidAirtableString($message);
+        }
+        curl_close($curl);
+        return $api_response;
+    }
 }
