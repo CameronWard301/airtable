@@ -1,7 +1,7 @@
 base   airtable
 author Cameron
 email  cameronward007@gmail.com
-date   2021-05-17
+date   2021-06-06
 name   Airtable Sync Plugin
 desc   Get Airtable information and display in dokuwiki page
 url    https://www.dokuwiki.org/plugin:airtable
