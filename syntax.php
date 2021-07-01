@@ -1,4 +1,4 @@
-<?php
+<?php /** @noinspection DuplicatedCode */
 /**
  * Plugin Airtable: Syncs Airtable Content to dokuWiki
  *
@@ -444,7 +444,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
         }
         $decoded_type   = strtolower($decoded_type);
         $accepted_types = array("img", "image", "picture", "text", "txt", "table", "tbl", "record");
-        if(!array_search($decoded_type, $accepted_types)) {
+        if(array_search($decoded_type, $accepted_types) === false) {
             throw new InvalidAirtableString(
                 "Invalid Type Parameter: " . htmlspecialchars($decoded_type) . "
             <br>Accepted Types: " . implode(" | ", $accepted_types)
@@ -474,7 +474,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
         $string_array = explode(' | ', $user_string);
         foreach($string_array as $item) {
             $parameter                        = explode(": ", $item); //creates key value pairs for parameters e.g. [type] = "image"
-            $query[strtolower($parameter[0])] = str_replace('"', '', $parameter[1]); //removes quotes
+            $query[strtolower($parameter[0])] = trim(str_replace('"', '', $parameter[1])); //removes quotes
         }
         if(array_key_exists("fields", $query)) { // separate field names into an array if it exists
             $fields          = array_map("trim", explode(",", $query['fields'])); //todo: url encode fields here?
@@ -624,13 +624,19 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
 
         //add filter:
         if(key_exists('where', $data)) {
-            $request .= '&filterByFormula=' . urlencode($data['where']);
+            if($data['where'] !== "") {
+                $request .= '&filterByFormula=' . urlencode($data['where']);
+            }
         }
 
         //Set max records:
         if(key_exists('max-records', $data)) {
-            if((int) $data['max-records'] <= MAX_RECORDS) {
-                $max_records = $data['max-records'];
+            if($data['max-records'] !== "") {
+                if((int) $data['max-records'] <= MAX_RECORDS) {
+                    $max_records = $data['max-records'];
+                } else {
+                    $max_records = MAX_RECORDS;
+                }
             } else {
                 $max_records = MAX_RECORDS;
             }
@@ -641,7 +647,9 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
 
         //set order by which field and order direction:
         if(key_exists('order-by', $data)) {
-            $request .= '&' . urlencode('sort[0][field]') . '=' . urlencode($data['order-by']);
+            if($data['order-by'] !== "") {
+                $request .= '&' . urlencode('sort[0][field]') . '=' . urlencode($data['order-by']);
+            }
         }
         if(key_exists('order', $data)) {
             $order = $data['order'];
