@@ -646,18 +646,18 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
         $request .= '&maxRecords=' . $max_records;
 
         //set order by which field and order direction:
-        if(key_exists('order-by', $data)) {
-            if($data['order-by'] !== "") {
-                $request .= '&' . urlencode('sort[0][field]') . '=' . urlencode($data['order-by']);
-            }
-        }
         if(key_exists('order', $data)) {
             $order = $data['order'];
         } else {
             $order = "asc";
         }
 
-        $request .= '&' . urlencode('sort[0][direction]') . '=' . urlencode($order);
+        if(key_exists('order-by', $data)) {
+            if($data['order-by'] !== "") {
+                $request .= '&' . urlencode('sort[0][field]') . '=' . urlencode($data['order-by']);
+                $request .= '&' . urlencode('sort[0][direction]') . '=' . urlencode($order);
+            }
+        }
 
         return $this->sendRequest($request);
     }
