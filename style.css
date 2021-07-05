@@ -39,6 +39,7 @@
     width: 200px;
 }
 
-.airtable-table img, object, embed, iframe, video, audio {
-    width: 250px !important;
+
+.airtable-table img, video, audio {
+    width: auto !important;
 }
