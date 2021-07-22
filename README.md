@@ -1,6 +1,7 @@
 # Airtable Dokuwiki Sync
 
 A Dokuwiki plugin to sync data from airtable
+**Not For Production Use** - this plugin is still in early development and may contain security flaws
 
 ## The road map:
 
