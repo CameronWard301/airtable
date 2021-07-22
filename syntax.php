@@ -235,22 +235,37 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      */
     private
     function renderTable($parameter_array, $api_response): string {
-        $html = '<div style="overflow-x: auto"><table class="airtable-table"><thead><tr>';
-        foreach($parameter_array['fields'] as $field) {
-            $html .= '<th>' . $field['name'] . '</th>';
-        }
         $parameter_array['media-styles'] = 'min-width: 250px;';
-        $html                            .= '</tr></thead><tbody>';
-        foreach($api_response['records'] as $record) {
-            $html .= '<tr>';
+        $html                            = '<div style="overflow-x: auto"><table class="airtable-table">';
+        if($parameter_array['orientation'] == 'horizontal') {
+            $html .= '<tr><thead>';
             foreach($parameter_array['fields'] as $field) {
-                $parsed_field = $this->processAirtableFieldType($parameter_array, $field, $record['fields']);
-                $html         .= '<td>' . $parsed_field . '</td>';
+                $html .= '<th>' . $field['name'] . '</th>';
             }
-            $html .= '</tr>';
+            $html .= '</tr></thead><tbody>';
+            foreach($api_response['records'] as $record) {
+                $html .= '<tr>';
+                foreach($parameter_array['fields'] as $field) {
+                    $parsed_field = $this->processAirtableFieldType($parameter_array, $field, $record['fields']);
+                    $html         .= '<td>' . $parsed_field . '</td>';
+                }
+                $html .= '</tr>';
+            }
+            $html .= '</tbody></table></div>';
+            return $html;
+        } else {
+            foreach($parameter_array['fields'] as $field) {
+                $html .= '<tr><th>' . $field['name'] . '</th>';
+                foreach($api_response['records'] as $record) {
+                    $parsed_field = $this->processAirtableFieldType($parameter_array, $field, $record['fields']);
+                    $html         .= '<td>' . $parsed_field . '</td>';
+                }
+                $html .= '</tr>';
+            }
+            $html .= '</table></div>';
+
+            return $html;
         }
-        $html .= '</tbody></table></div>';
-        return $html;
     }
 
     /**
@@ -572,8 +587,8 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      */
     private
     function parseTableString($user_string): array {
-        $table_parameter_types  = array("display" => true, "table" => true, "fields" => true, "record-url" => true, "where" => "", "order-by" => "", "order" => "asc", "max-records" => "", "force-table" => "false", "attachment-title" => "");
-        $table_parameter_values = array("order" => ["asc", "desc"], "force-table" => ["true", "false"]);
+        $table_parameter_types  = array("display" => true, "table" => true, "fields" => true, "record-url" => true, "where" => "", "order-by" => "", "order" => "asc", "max-records" => "", "force-table" => "false", "orientation" => "horizontal", "attachment-title" => "");
+        $table_parameter_values = array("order" => ["asc", "desc"], "force-table" => ["true", "false"], "orientation" => ["horizontal", "vertical"]);
         $table_query            = $this->decodeRecordURL($this->getParameters($user_string));
         return $this->checkRequestParameters($table_query, $table_parameter_types, $table_parameter_values);
     }

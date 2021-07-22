@@ -120,12 +120,15 @@ Optional Parameters:
   always want a table
     * `false` - Default
     * `true`
+* `orientation` - Specifies the orientation of the table. Options:
+    * `horizontal` - Default - Headings are horizontal
+    * `vertical` - Headings are vertical
 * `max-records` - the maximum number of records displayed in the table. The default is the number specified in the
   configuration manager. Any values higher than the maximum set will be ignored, and the admins maximum is used instead
 
 #### Example:
 
-`{{airtable>display: "table" | fields: "Name", "# of bulbs", "Posted By", "Post Text", "Post Image(s)"@attachment | where: "AND({Idea #} <= 3450, {Idea #} > 3430)" | max-records: "10" | order-by: "# of bulbs" | order: "asc" | record-url: "https://airtable.com/tblZnH5CY11MZEboF/viwVm4rH7dceE7VV2?blocks=hide"}}`  
+`{{airtable>display: "table" | fields: "Name", "# of bulbs", "Posted By", "Post Text", "Post Image(s)"@attachment | where: "AND({Idea #} <= 3450, {Idea #} > 3430)" | max-records: "10" | order-by: "# of bulbs" | order: "asc" | record-url: "https://airtable.com/tblZnH5CY11MZEboF/viwVm4rH7dceE7VV2?blocks=hide" | force-table: "true" | oreination: "vertical"}}`  
 Note: any media (images/audio/video) returned by airtable, will also be rendered inside the table.
 ![Table Example](images/table.png)
 
