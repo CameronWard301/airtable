@@ -129,7 +129,7 @@ Optional Parameters:
 
 #### Example:
 
-`{{airtable>display: "table" | fields: "Name", "# of bulbs", "Posted By", "Post Text", "Post Image(s)"@attachment | where: "AND({Idea #} <= 3450, {Idea #} > 3430)" | max-records: "10" | order-by: "# of bulbs" | order: "asc" | record-url: "https://airtable.com/tblZnH5CY11MZEboF/viwVm4rH7dceE7VV2?blocks=hide" | force-table: "true" | oreination: "vertical"}}`  
+`{{airtable>display: "table" | fields: "Name", "# of bulbs", "Posted By", "Post Text", "Post Image(s)"@attachment | where: "AND({Idea #} <= 3450, {Idea #} > 3430)" | max-records: "10" | order-by: "# of bulbs" | order: "asc" | record-url: "https://airtable.com/tblZnH5CY11MZEboF/viwVm4rH7dceE7VV2?blocks=hide" | force-table: "true" | orientation: "vertical"}}`  
 Note: any media (images/audio/video) returned by airtable, will also be rendered inside the table.
 ![Table Example](images/table.png)
 
