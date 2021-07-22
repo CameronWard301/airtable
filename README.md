@@ -2,6 +2,12 @@
 
 A Dokuwiki plugin to sync data from airtable
 
+## The road map:
+
+* Implement a cache so that dokuwiki pages can be auto updated regularly
+
+_____
+
 ## Prerequisites:
 
 * Create an airtable account and get an API key: https://airtable.com/api - also see their documentation on how to
