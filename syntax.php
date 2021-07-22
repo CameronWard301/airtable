@@ -130,7 +130,6 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             case DOKU_LEXER_SPECIAL:
             case DOKU_LEXER_MATCHED :
                 break;
-//todo: test multi_select
             case DOKU_LEXER_UNMATCHED :
                 if(!empty($match)) {
                     try {
