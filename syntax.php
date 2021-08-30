@@ -1,4 +1,5 @@
-<?php /** @noinspection DuplicatedCode */
+<?php /** @noinspection PhpPossiblePolymorphicInvocationInspection */
+/** @noinspection DuplicatedCode */
 /**
  * Plugin Airtable: Syncs Airtable Content to dokuWiki
  *
@@ -8,7 +9,9 @@
  * @author     Cameron Ward <cameronward007@gmail.com>
  */
 // must be run within DokuWiki
-if(!defined('DOKU_INC')) die();
+if(!defined('DOKU_INC')) {
+    die();
+}
 
 /**
  * Class InvalidAirtableString
@@ -124,8 +127,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             case DOKU_LEXER_EXIT:
             case DOKU_LEXER_ENTER :
                 /** @var array $data */
-                $data = array();
-                return $data;
+            return array();
 
             case DOKU_LEXER_SPECIAL:
             case DOKU_LEXER_MATCHED :
@@ -133,10 +135,12 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             case DOKU_LEXER_UNMATCHED :
                 if(!empty($match)) {
                     try {
+                        //get config options
                         define('BASE_ID', $this->getConf('Base_ID'));
                         define('API_KEY', $this->getConf('API_Key'));
                         define('MAX_RECORDS', $this->getConf('Max_Records'));
                         define('VALID_FIELD_TYPES', array('string', 'rating', 'multi_select', 'checkbox', 'url', 'attachment', 'linked_record'));
+                        define('AIRTABLE_CACHE_TIME', $this->getConf('Airtable_Refresh'));
                         define(
                             'RATING_CHECKBOX_OPTIONS',
                             array(
@@ -150,6 +154,25 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                             )
                         );
 
+                        //validate config variables
+                        if(empty(BASE_ID)) {
+                            throw new InvalidAirtableString('Empty Base ID, set this in the configuration manager in the admin panel');
+                        }
+                        if(empty(API_KEY)) {
+                            throw new InvalidAirtableString('Empty Airtable API Key, set this in the configuration manager in the admin panel');
+                        }
+                        if(empty(MAX_RECORDS)) {
+                            throw new InvalidAirtableString('Empty MAX_RECORDS value, set this in the configuration manager in the admin panel');
+                        }
+                        if(empty(AIRTABLE_CACHE_TIME)) {
+                            throw new InvalidAirtableString('Empty AIRTABLE_CACHE_TIME, set this in the configuration manager in the admin panel');
+                        }
+
+                        global $cacheHelper;
+                        if(!($cacheHelper = $this->loadHelper('airtable_cacheInterface'))) {
+                            throw new InvalidAirtableString('Could not load cache interface helper');
+                        }
+
                         $user_string  = $match;
                         $display_type = $this->getDisplayType($user_string); //check type is set correctly
                         // MAIN PROGRAM:
@@ -157,38 +180,44 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                             case ($display_type === "tbl"):
                                 $parameter_array = $this->parseTableString($user_string);
                                 $api_response    = $this->sendTableRequest($parameter_array);
+
                                 if(count($api_response['records']) == 1 && $parameter_array['force-table'] == 'false') { //if query resulted in one record, render as a template:
                                     $html = $this->renderRecord($parameter_array, $api_response['records'][0]);
                                 } else {
                                     $html = $this->renderTable($parameter_array, $api_response);
                                 }
-                                return array('airtable_html' => $html);
+                                break;
+
                             case ($display_type === "record"):
                                 $parameter_array = $this->parseRecordString($user_string);
                                 $api_response    = $this->sendRecordRequest($parameter_array);
                                 $html            = $this->renderRecord($parameter_array, $api_response);
-                                return array('airtable_html' => $html);
+                                break;
+                            //return array('airtable_html' => $html);
                             case ($display_type === "attachment"):
                                 $parameter_array = $this->parseImageString($user_string);
                                 $api_response    = $this->sendRecordRequest($parameter_array);
                                 $html            = $this->renderAttachments($parameter_array, $api_response);
-                                return array('airtable_html' => $html);
+                                break;
+                            //return array('airtable_html' => $html);
                             case ($display_type === "txt"):
                                 $parameter_array = $this->parseTextString($user_string);
                                 $api_response    = $this->sendRecordRequest($parameter_array);
                                 $html            = $this->renderText($parameter_array, $api_response);
-                                return array('airtable_html' => $html);
+                                break;
+                            //return array('airtable_html' => $html);
                             default:
                                 throw new InvalidAirtableString("Unknown Embed Type");
                         }
+                        $cache_id = $this->cacheApiResponse($match, $api_response, $cacheHelper);
+                        return array('airtable_html' => $html, 'cache_id' => $cache_id, 'request' => $parameter_array['request']); //return the html to render and the cache ID to be added to the pages metadata
                     } catch(InvalidAirtableString $e) {
                         $html = "<p style='color: red; font-weight: bold;'>Airtable Error: " . $e->getMessage() . "</p>";
                         return array('airtable_html' => $html);
                     }
                 }
         }
-        $data = array();
-        return $data;
+        return array();
     }
 
     /**
@@ -213,16 +242,35 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      */
     public
     function render($mode, Doku_Renderer $renderer, $data): bool {
-        //<airtable>Type: Image, Table: tblwWxohDeMeAAzdW, WHERE: {Ref #} = 19, image-size: small, alt-tag: marble-machine-x</airtable>
-
-        if($mode != 'xhtml') return false;
-
-        if(!empty($data['airtable_html'])) {
-            $renderer->doc .= $data['airtable_html'];
-            return true;
-        } else {
+        if($data === false) {
             return false;
         }
+        if($mode == 'xhtml') {
+            if(!empty($data['airtable_html'])) {
+                $renderer->doc .= $data['airtable_html'];
+                return true;
+            } else {
+                return false;
+            }
+        } elseif($mode == 'metadata') {
+            if(!empty($data['cache_id']) && !empty($data['request'])) {
+                /** @var Doku_Renderer_metadata $renderer */
+
+                //erase persistent metadata tags that are no longer used
+                if(isset($renderer->persistent['plugin']['airtable']['cache_ids'])) {
+                    unset($renderer->persistent['plugin']['airtable']['cache_ids']);
+                    $renderer->meta['plugin']['airtable']['cache_ids'] = array();
+                }
+
+                //merge with previous tags and make the values unique
+                if(!isset($renderer->meta['plugin']['airtable']['cache_ids'])) {
+                    $renderer->meta['plugin']['airtable']['cache_ids'] = array();
+                }
+                $renderer->meta['plugin']['airtable']['cache_ids'] = array_unique(array_merge($renderer->meta['plugin']['airtable']['cache_ids'], array($data['cache_id'] => $data['request'])));
+            }
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -238,11 +286,11 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
         $parameter_array['media-styles'] = 'min-width: 250px;';
         $html                            = '<div style="overflow-x: auto"><table class="airtable-table">';
         if($parameter_array['orientation'] == 'horizontal') {
-            $html .= '<tr><thead>';
+            $html .= '<thead><tr>';
             foreach($parameter_array['fields'] as $field) {
                 $html .= '<th>' . $field['name'] . '</th>';
             }
-            $html .= '</tr></thead><tbody>';
+            $html .= '</thead></tr><tbody>';
             foreach($api_response['records'] as $record) {
                 $html .= '<tr>';
                 foreach($parameter_array['fields'] as $field) {
@@ -252,7 +300,6 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                 $html .= '</tr>';
             }
             $html .= '</tbody></table></div>';
-            return $html;
         } else {
             foreach($parameter_array['fields'] as $field) {
                 $html .= '<tr><th>' . $field['name'] . '</th>';
@@ -264,8 +311,8 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             }
             $html .= '</table></div>';
 
-            return $html;
         }
+        return $html;
     }
 
     /**
@@ -378,8 +425,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
             $response_html = $this->processAirtableFieldType($parameter_array, $field, $api_response['fields']);
             $html          .= $response_html . ' ';
         }
-        $html = rtrim($html);
-        return $html;
+        return rtrim($html);
     }
 
     /**
@@ -427,7 +473,7 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @return string
      * @throws InvalidAirtableString
      */
-    private function processAirtableFieldType($parameter_array, $user_field, $api_response_fields): string {
+    public function processAirtableFieldType($parameter_array, $user_field, $api_response_fields): string {
         $type = $user_field['type'];
 
         if(!array_key_exists($user_field['name'], $api_response_fields) && $type !== 'checkbox') { //if field is not present in array:
@@ -465,12 +511,10 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                     if(array_key_exists(2, $checkbox_options)) {
                         $font_size = 'font-size: ' . htmlspecialchars($checkbox_options[2]) . ';';
                     }
-                    if($response_field == null) { //show unchecked checkbox
-                        return '<span style="' . $colour . ' ' . $font_size . '">' . $symbol . '</span>';
-                    } else {
+                    if($response_field != null) {
                         $symbol = RATING_CHECKBOX_OPTIONS[$checkbox_options[0]]['unicode'];
-                        return '<span style="' . $colour . ' ' . $font_size . '">' . $symbol . '</span>';
                     }
+                    return '<span style="' . $colour . ' ' . $font_size . '">' . $symbol . '</span>';
 
                 }
                 if($response_field == true) { //show checked checkbox
@@ -551,8 +595,9 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                     }
                     $request .= urlencode($record_ID);
                 }
-                $request     .= urlencode('") != ""');
-                $LR_response = $this->sendRequest($request);
+                $request .= urlencode('") != ""');
+                global $cacheHelper;
+                $LR_response = $this->checkAPIResponse($cacheHelper->sendRequest($request));
                 $html        = '';
                 foreach($LR_response['records'] as $record) {
                     $link_label = $record['fields'][trim($link_field, "'")];
@@ -710,17 +755,16 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @throws InvalidAirtableString
      */
     private function parseFields($field_string, &$query) {
-        preg_match_all('/(?:".+?")(?:(?:@[a-zA-Z_]+)(?:\[[a-zA-Z\-:0-9 ,_()#\']+])?)?/m', $field_string, $matches);//Finds field and type pairs
+        preg_match_all('/".+?"(?:@[a-zA-Z_]+(?:\[[a-zA-Z\-:0-9 ,_()#\']+])?)?/m', $field_string, $matches);//Finds field and type pairs
         foreach($matches[0] as $match) {
             $field = array();
             if(strpos($match, '"@') === false || !strpos($match, '" @') === false) { //No type set, treat field as a String
                 $field['name'] = str_replace('"', '', $match);
                 $field['type'] = 'string';
-                array_push($query['fields'], $field); //add field to fields array
             } else { //Process the type set by user
                 $items         = explode('@', $match);
                 $field['name'] = trim(str_replace('"', '', $items[0]));
-                if(preg_match('/(?:\[.+?])(?:@[a-zA-Z0-9,]+)?/m', $items[1], $option)) { //if there is also an option set
+                if(preg_match('/\[.+?](?:@[a-zA-Z0-9,]+)?/m', $items[1], $option)) { //if there is also an option set
                     $field['type'] = strtolower(str_replace($option[0], '', $items[1]));
                     $clean_option  = preg_replace('/[\[\]]/m', '', $option); //split out the option part e.g.[star]
                     preg_match('/(-?[1-9]?[0-9]*)(?::(-?[1-9]?[0-9]+)|:?([0-9]+))?/', $clean_option[0], $matches);
@@ -735,8 +779,8 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                         throw new InvalidAirtableString('Invalid field type for: ' . htmlspecialchars($field['type']) . '<br>Please choose from one of the valid types: ' . json_encode(VALID_FIELD_TYPES));
                     }
                 }
-                array_push($query['fields'], $field);
             }
+            array_push($query['fields'], $field);
         }
     }
 
@@ -847,10 +891,12 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @return false|string //JSON String
      * @throws InvalidAirtableString
      */
-    private
-    function sendRecordRequest($data) {
-        $request = $data['table'] . '/' . urlencode($data['record-id']);
-        return $this->sendRequest($request);
+    public
+    function sendRecordRequest(&$data) {
+        $request         = $data['table'] . '/' . urlencode($data['record-id']);
+        $data['request'] = $request;
+        global $cacheHelper;
+        return $this->checkAPIResponse($cacheHelper->sendRequest($request));
     }
 
     /**
@@ -860,8 +906,8 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
      * @return false|string
      * @throws InvalidAirtableString
      */
-    private
-    function sendTableRequest($data) {
+    public
+    function sendTableRequest(&$data) {
         $request = $data['table'] . '?';
         //Add each field to the request string
         foreach($data['fields'] as $index => $field) {
@@ -908,45 +954,36 @@ class syntax_plugin_airtable extends DokuWiki_Syntax_Plugin {
                 $request .= '&' . urlencode('sort[0][direction]') . '=' . urlencode($order);
             }
         }
+        $data['request'] = $request;//store to add to metadata later
 
-        return $this->sendRequest($request);
+        global $cacheHelper;
+        return $this->checkAPIResponse($cacheHelper->sendRequest($request));
     }
 
     /**
-     * Method to call the airtable API
-     *
-     * @param $request
-     * @return false|string
+     * Creates a unique cache ID from the user syntax string and the page ID
+     * Returns the cache ID created
+     * @param $airtable_string string e.g. {{airtable>display: "record" ....}}
+     * @param $data            mixed the data returned from the airtable API
+     * @param $cacheHelper     mixed the cacheHelper Object
+     * @return string the ID of the cache file created
+     */
+    private function cacheApiResponse($airtable_string, $data, $cacheHelper): string {
+        $cache_id = md5($_GET['id'] . '_' . $airtable_string);
+        $cacheHelper->newCache($cache_id, $data, md5(time())); //cache the airtable request
+        return $cache_id;
+    }
+
+    /**
+     * Returns the API response if there is no error
+     * Otherwise display the error to the user
      * @throws InvalidAirtableString
      */
-    private
-    function sendRequest($request) {
-        $url  = 'https://api.airtable.com/v0/' . BASE_ID . '/' . $request;
-        $curl = curl_init($url);
-        curl_setopt($curl, CURLOPT_URL, $url);
-        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-
-        $headers = array(
-            'Authorization: Bearer ' . API_KEY
-        );
-
-        curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
-
-        //TODO: remove once in production:
-        curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);//
-
-        $api_response = json_decode(curl_exec($curl), true); //decode JSON to associative array
-
-        if(curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
-            if(key_exists("error", $api_response)) {
-                $message = json_encode($api_response['error']);
-            } else {
-                $message = "Unknown API api_response error";
-            }
-            throw new InvalidAirtableString($message);
+    private function checkAPIResponse($response) {
+        if(key($response) !== false) {
+            return $response;
+        } else {
+            throw new InvalidAirtableString($response[key($response)]);
         }
-        curl_close($curl);
-        return $api_response;
     }
 }

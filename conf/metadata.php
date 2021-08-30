@@ -5,6 +5,7 @@
  * @author Cameron Ward <cameronward007@gmail.com>
  */
 
-$meta['Base_ID']     = array('string');
-$meta['API_Key']     = array('string');
-$meta['Max_Records'] = array('numeric', '_pattern' => '/^[0-9]+$/'); //only accept numbers
+$meta['Base_ID']          = array('string');
+$meta['API_Key']          = array('string');
+$meta['Max_Records']      = array('numeric', '_pattern' => '/^[0-9]+$/'); //only accept numbers
+$meta['Airtable_Refresh'] = array('numeric', '_pattern' => '/^[0-9]+$/'); //only accept numbers
